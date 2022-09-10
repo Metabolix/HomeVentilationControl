@@ -1,10 +1,13 @@
 import json
+import time
 from machine import WDT
+from Timestamp import Timestamp
 
 class HomeVentilationControl:
     def __init__(self):
         self._load_conf()
         self.watchdog = None
+        self.uptime = Timestamp()
         self.update()
 
     def _load_conf(self):
@@ -22,6 +25,7 @@ class HomeVentilationControl:
             self.conf["watchdog"] = 1
 
     def update(self):
+        self.uptime.update()
         try:
             if self.conf["watchdog"] and not self.watchdog:
                 self.watchdog = WDT(timeout = 8388) # Max timeout in RP2040.
@@ -30,7 +34,12 @@ class HomeVentilationControl:
             pass
 
     def __str__(self):
-        return f"""{self.__class__.__name__} running."""
+        clock = "{0:04}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}Z".format(*time.gmtime())
+        return f"""{self.__class__.__name__}
+uptime: {self.uptime}
+clock: {clock}
+
+"""
 
 def run():
     import time
