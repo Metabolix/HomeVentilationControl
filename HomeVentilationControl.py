@@ -32,6 +32,7 @@ class HomeVentilationControl:
             pin_pwm_out = 18,
         )
 
+        self.ir_rpm_target = self.ir_rpm = 0
         self._load_conf()
         self.watchdog = None
         self.uptime = Timestamp()
@@ -51,12 +52,47 @@ class HomeVentilationControl:
         if "watchdog" not in self.conf:
             self.conf["watchdog"] = 1
 
+        if "ir_speeds" not in self.conf:
+            self.conf["ir_speeds"] = (0, 1300, 2000, 2300, 2600)
+
     def update(self):
         self.uptime.update()
         self.air.update()
         self.ir.update()
         self.c0.update()
         self.c1.update()
+
+        self.ir.speed_timestamp.set_valid_between(0, 5_400_000)
+        ir_valid = self.ir.speed_timestamp.valid()
+        try:
+            self.ir_rpm_target = self.conf["ir_speeds"][self.ir.speed if ir_valid else 0]
+        except:
+            self.ir_rpm_target = 0
+
+        if self.ir_rpm_target:
+            # Remember latest non-zero IR RPM.
+            if not self.ir_rpm:
+                self.ir_high_start = Timestamp()
+            self.ir_high_end = Timestamp()
+            self.ir_rpm = self.ir_rpm_high = self.ir_rpm_target
+        elif self.ir_rpm > 0:
+            # Lower RPM smoothly to zero, depending on previous cooking time.
+            self.ir_duration = self.ir_high_start.ms() - self.ir_high_end.ms()
+            self.ir_rpm = 0
+            ir_slope_time = 120_000
+            if self.ir_duration > 300_000:
+                ir_slope_time = 180_000
+            if self.ir_duration > 600_000:
+                ir_slope_time = 240_000
+            ir_slope_pos = self.ir_high_end.ms()
+            if ir_slope_pos < ir_slope_time:
+                self.ir_rpm = self.ir_rpm_high * (ir_slope_time - ir_slope_pos) // ir_slope_time
+
+        r = self.c1.ctrl_rpm
+        if ir_valid:
+            r = max(r, self.ir_rpm)
+        self.c1.set_rpm(r)
+
         try:
             if self.conf["watchdog"] and not self.watchdog:
                 self.watchdog = WDT(timeout = 8388) # Max timeout in RP2040.
@@ -81,7 +117,7 @@ FAN 0 (main):
 FAN 1 (kitchen hood):
     RPM:  {c1.rpm:4} rpm, target {str_none(c1.target_rpm):4} rpm (on {c1.switch_on}, own {c1.switch_own})
     CTRL: {c1.ctrl_rpm:4} rpm ({c1.ctrl_level[0]} {c1.ctrl_level[1]}, {c1.ctrl_millivolts} mV), age {c1.ctrl_timestamp}
-    IR: speed {self.ir.speed}, age {self.ir.speed_timestamp}
+    IR:   {self.ir_rpm:4} rpm, speed {self.ir.speed}, age {self.ir.speed_timestamp}
 
 """
 
