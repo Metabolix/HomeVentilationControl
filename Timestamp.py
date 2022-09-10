@@ -5,12 +5,15 @@ class Timestamp:
 
     Create x = Timestamp(), check x.between(0, 10_000).
     Create x = Timestamp(10_000), check x.passed().
+    Create x = Timestamp(), set x.set_valid_between(0, 60_000), check x.valid().
+    Create x = Timestamp(), read x.ms().
 
     All values must be below 86400_000 ms (1 day). Days are counted for printing.
     """
 
     def __init__(self, offset = 0):
         self.empty = offset is None
+        self._valid_ms_0 = self._valid_ms_1 = None
         if not self.empty:
             self._ticks_ms = ticks_ms()
             self._ms = -offset
@@ -21,6 +24,19 @@ class Timestamp:
 
     def passed(self):
         return self.update() and self._ms >= 0
+
+    def ms(self):
+        return self.update() and self._days * 86400_000 + self._ms
+
+    def set_valid_between(self, ms_0, ms_1):
+        self._valid_ms_0, self._valid_ms_1 = ms_0, ms_1
+        self.valid()
+
+    def valid(self):
+        u = self.update()
+        self._valid_0 = u and (self._valid_ms_0 is None or self._days or self._ms >= self._valid_ms_0) and True or False
+        self._valid_1 = u and (self._valid_ms_1 is None or (not self._days and self._ms <= self._valid_ms_1)) and True or False
+        return self._valid_0 and self._valid_1
 
     def update(self):
         if not self.empty:
@@ -48,7 +64,14 @@ class Timestamp:
         # FIXME: In some use cases, updating the timestamp here
         # can lead to discrepancy between logic and debug prints;
         # in others, not updating will keep it at 0.000 forever.
-        self.update()
+        # Crude heuristic: if validity checking is used, don't update here.
+        if self._valid_ms_0 is self._valid_ms_1 is None:
+            self.update()
         if self._ms < 0:
             return "<0"
-        return timestr(self._ms, self._days)
+        t = timestr(self._ms, self._days)
+        if self._valid_ms_0 is not None and not self._valid_0:
+            return t + " (<" + timestr(self._valid_ms_0) + ")"
+        if self._valid_ms_1 is not None and not self._valid_1:
+            return t + " (>" + timestr(self._valid_ms_1) + ")"
+        return t
