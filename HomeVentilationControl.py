@@ -1,10 +1,19 @@
 import json
 import time
-from machine import WDT
+from machine import Pin, WDT, mem32
 from Timestamp import Timestamp
+
+def pin_make_vcc(num):
+    """Set a pin high and set drive strength to 12 mA"""
+    Pin(num, Pin.OUT, value = 1)
+    PADS_BANK0 = 0x4001c000
+    ATOMIC_OR = 0x2000
+    mem32[ATOMIC_OR + PADS_BANK0 + 4 + num * 4] = 0x30
 
 class HomeVentilationControl:
     def __init__(self):
+        pin_make_vcc(9)
+
         self._load_conf()
         self.watchdog = None
         self.uptime = Timestamp()
