@@ -2,6 +2,7 @@ import json
 import time
 from machine import Pin, WDT, mem32
 from Timestamp import Timestamp
+from DHT22 import DHT22
 
 def pin_make_vcc(num):
     """Set a pin high and set drive strength to 12 mA"""
@@ -13,6 +14,7 @@ def pin_make_vcc(num):
 class HomeVentilationControl:
     def __init__(self):
         pin_make_vcc(9)
+        self.air = DHT22(10)
 
         self._load_conf()
         self.watchdog = None
@@ -35,6 +37,7 @@ class HomeVentilationControl:
 
     def update(self):
         self.uptime.update()
+        self.air.update()
         try:
             if self.conf["watchdog"] and not self.watchdog:
                 self.watchdog = WDT(timeout = 8388) # Max timeout in RP2040.
@@ -43,10 +46,12 @@ class HomeVentilationControl:
             pass
 
     def __str__(self):
+        str_temp_rh = lambda x: x is None and "None" or f"{x // 10}.{x % 10}"
         clock = "{0:04}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}Z".format(*time.gmtime())
         return f"""{self.__class__.__name__}
 uptime: {self.uptime}
 clock: {clock}
+air: {str_temp_rh(self.air.temperature)} °C, RH {str_temp_rh(self.air.humidity)} %
 
 """
 
