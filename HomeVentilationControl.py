@@ -3,6 +3,7 @@ import time
 from machine import Pin, WDT, mem32
 from Timestamp import Timestamp
 from DHT22 import DHT22
+from Hob2Hood import Hob2Hood
 
 def pin_make_vcc(num):
     """Set a pin high and set drive strength to 12 mA"""
@@ -15,6 +16,7 @@ class HomeVentilationControl:
     def __init__(self):
         pin_make_vcc(9)
         self.air = DHT22(10)
+        self.ir = Hob2Hood(sm = 0, pin = 11)
 
         self._load_conf()
         self.watchdog = None
@@ -38,6 +40,7 @@ class HomeVentilationControl:
     def update(self):
         self.uptime.update()
         self.air.update()
+        self.ir.update()
         try:
             if self.conf["watchdog"] and not self.watchdog:
                 self.watchdog = WDT(timeout = 8388) # Max timeout in RP2040.
@@ -52,6 +55,9 @@ class HomeVentilationControl:
 uptime: {self.uptime}
 clock: {clock}
 air: {str_temp_rh(self.air.temperature)} °C, RH {str_temp_rh(self.air.humidity)} %
+
+FAN 1 (kitchen hood):
+    IR: speed {self.ir.speed}, age {self.ir.speed_timestamp}
 
 """
 
