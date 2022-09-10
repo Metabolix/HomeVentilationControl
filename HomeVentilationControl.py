@@ -33,6 +33,7 @@ class HomeVentilationControl:
         )
 
         self.ir_rpm_target = self.ir_rpm = 0
+        self.c1_fixed_ctrl_rpm = self.c1_fixed_ctrl_level = -1
         self._load_conf()
         self.watchdog = None
         self.uptime = Timestamp()
@@ -54,6 +55,9 @@ class HomeVentilationControl:
 
         if "ir_speeds" not in self.conf:
             self.conf["ir_speeds"] = (0, 1300, 2000, 2300, 2600)
+
+        if "hood_speeds" not in self.conf:
+            self.conf["hood_speeds"] = (0, 330, 1000, 1600, 2600, 2600, 2600, 2600, 2600)
 
     def update(self):
         self.uptime.update()
@@ -88,7 +92,21 @@ class HomeVentilationControl:
             if ir_slope_pos < ir_slope_time:
                 self.ir_rpm = self.ir_rpm_high * (ir_slope_time - ir_slope_pos) // ir_slope_time
 
-        r = self.c1.ctrl_rpm
+        # Custom output levels for the kitchen hood.
+        # It's supposed to return to base speed after a fixed timeout, but
+        # sometimes it fails to do that. Use the timestamp to fix this.
+        # Also, use setting 0 only if the control says so, otherwise use 1,
+        # because in some configurations the fan is not supposed to stop ever.
+        self.c1.ctrl_timestamp.set_valid_between(0, 5_400_000)
+        i = self.c1.ctrl_level[0]
+        i = i if i == 0 or self.c1.ctrl_timestamp.valid() else 1
+        try:
+            self.c1_fixed_ctrl_rpm = self.conf["hood_speeds"][i]
+            self.c1_fixed_ctrl_level = i
+        except:
+            self.c1_fixed_ctrl_rpm = self.c1_fixed_ctrl_level = -1
+
+        r = self.c1.ctrl_rpm if self.c1_fixed_ctrl_level < 0 else self.c1_fixed_ctrl_rpm
         if ir_valid:
             r = max(r, self.ir_rpm)
         self.c1.set_rpm(r)
@@ -117,6 +135,7 @@ FAN 0 (main):
 FAN 1 (kitchen hood):
     RPM:  {c1.rpm:4} rpm, target {str_none(c1.target_rpm):4} rpm (on {c1.switch_on}, own {c1.switch_own})
     CTRL: {c1.ctrl_rpm:4} rpm ({c1.ctrl_level[0]} {c1.ctrl_level[1]}, {c1.ctrl_millivolts} mV), age {c1.ctrl_timestamp}
+    Fix:  {self.c1_fixed_ctrl_rpm:4} rpm ({self.c1_fixed_ctrl_level} {c1.ctrl_level[1]})
     IR:   {self.ir_rpm:4} rpm, speed {self.ir.speed}, age {self.ir.speed_timestamp}
 
 """
