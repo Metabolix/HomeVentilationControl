@@ -21,9 +21,11 @@ class HomeVentilationControl:
 
         self.c0 = FanController(
             pin_switch_on = 19, pin_switch_own = 22,
+            pin_voltage_adc = 28, ctrl_translate = FanController.VilpeECoIdeal,
         )
         self.c1 = FanController(
             pin_switch_on = 21, pin_switch_own = 20,
+            pin_voltage_adc = 27, ctrl_translate = FanController.LapetekVirgola5600XH,
         )
 
         self._load_conf()
@@ -69,9 +71,11 @@ air: {str_temp_rh(self.air.temperature)} °C, RH {str_temp_rh(self.air.humidity)
 
 FAN 0 (main):
     on {c0.switch_on}, own {c0.switch_own}
+    CTRL: {c0.ctrl_rpm:4} rpm ({c0.ctrl_level[0]} {c0.ctrl_level[1]}, {c0.ctrl_millivolts} mV), age {c0.ctrl_timestamp}
 
 FAN 1 (kitchen hood):
     on {c1.switch_on}, own {c1.switch_own}
+    CTRL: {c1.ctrl_rpm:4} rpm ({c1.ctrl_level[0]} {c1.ctrl_level[1]}, {c1.ctrl_millivolts} mV), age {c1.ctrl_timestamp}
     IR: speed {self.ir.speed}, age {self.ir.speed_timestamp}
 
 """
