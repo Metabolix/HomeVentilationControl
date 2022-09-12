@@ -11,7 +11,7 @@ from time import sleep_ms as s
 # Init controller with only PWM and tachy.
 # Without switches it won't mess up PWM in .update().
 c = FanController(
-    pin_tachy = 16,
+    sm_tachy = 1, pin_tachy = 16,
     pin_pwm_out = 17,
 )
 

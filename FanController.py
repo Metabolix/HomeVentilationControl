@@ -1,54 +1,63 @@
 from machine import Pin, ADC, PWM
-from time import ticks_us, ticks_diff
+from rp2 import PIO, StateMachine, asm_pio
 from Timestamp import Timestamp
 
-class TachyInput:
-    def __init__(self, pin, timeout):
-        self.timeout = timeout * 1000
-        self.valid_diff = [-1, -1]
-        self.valid_time = [0, 0]
-        self.valid_i = 0
+class TachyInputPIO:
+    """PIO for counting tachy input.
+    TX FIFO: None.
+    RX FIFO: microseconds between falling edges.
+    PIO instructions: 6
+    """
 
-        self.prev_time = ticks_us()
-        self.good_diff = 0
-        self.bad_diff = 0
-        self.bad_count = 0
+    def __init__(self, sm, pin, timeout):
+        self._timeout = timeout
+        self._diff = -1
+        self._timestamp = Timestamp(None)
         self.pin = Pin(pin, Pin.IN, Pin.PULL_UP)
-        self.pin.irq(lambda p: self._irq(), trigger = Pin.IRQ_FALLING)
+        pio_freq = 2_000_000 # 2 cycles per usec.
+        self.sm = StateMachine(sm, self.pio_program, freq = pio_freq, jmp_pin = self.pin)
+        self.sm.restart()
+        self.sm.active(1)
 
-    def _irq(self):
-        now = ticks_us()
-        diff = ticks_diff(now, self.prev_time)
-        self.prev_time = now
-        # Reject outliers in data, accept between 80 % and 133 %.
-        if diff * 3 < self.good_diff * 4 < diff * 5:
-            self.good_diff = diff
-            self.valid_diff[self.valid_i ^ 1] = diff
-            self.valid_time[self.valid_i ^ 1] = now
-            self.valid_i = self.valid_i ^ 1
-            self.bad_count = 0
-        elif diff * 2 < self.bad_diff * 3 < diff * 4:
-            self.bad_count += 1
-            # When the same value repeats, accept it eventually.
-            if self.bad_count > 8:
-                self.good_diff = diff
-        else:
-            self.bad_count = 1
-            self.bad_diff = diff
+    @asm_pio(fifo_join = PIO.JOIN_RX, autopush = True, push_thresh = 30)
+    def pio_program():
+        # Count until 0
+        label("loop_1")
+        jmp(x_dec, "x_nop1")
+        label("x_nop1")
+        jmp(pin, "loop_1")
+        in_(x, 30)
+        set(x, 0)
+        # Count until 1
+        wrap_target()
+        label("loop_0")
+        jmp(x_dec, "x_nop0")
+        label("x_nop0")
+        jmp(pin, "loop_1")
 
     def diff_us(self):
-        i = self.valid_i
-        diff = self.valid_diff[i]
-        if diff >= self.timeout or ticks_diff(ticks_us(), self.valid_time[i]) >= self.timeout:
-            self.valid_diff[i] = diff = -1
-        return diff
+        # If the FIFO is full and the PIO stalls, the second value will be bad,
+        # because it includes the stalling time. (The first value is just late.)
+        # => Always read two values and use only the first one.
+        # If the RPM drops to zero, the counter will overflow.
+        # => Don't use the first value after timeout (RPM zero).
+        last_valid = self._timestamp.between(0, self._timeout)
+        while self.sm.rx_fifo() > 1:
+            diff = 0x3fffffff - self.sm.get()
+            self.sm.get()
+            self._timestamp = Timestamp()
+            if last_valid:
+                self._diff = diff
+        if not last_valid or self._diff > self._timeout * 1000:
+            self._diff = -1
+        return self._diff
 
 class FanController:
     def __init__(
         self, *,
         pin_switch_on = None, pin_switch_own = None,
         pin_voltage_adc = None, ctrl_translate = None,
-        pin_tachy = None,
+        sm_tachy = None, pin_tachy = None,
         pin_pwm_out = None,
     ):
         self.pin_switch_on = pin_switch_on is not None and Pin(pin_switch_on, Pin.IN, pull = Pin.PULL_UP)
@@ -61,7 +70,7 @@ class FanController:
         self.ctrl_rpm = 0
 
         tachy_off_time = 2_000 # Over 2 seconds = less than 30 rpm will be considered "off".
-        self.tachy_input = pin_tachy is not None and TachyInput(pin_tachy, tachy_off_time)
+        self.tachy_input = sm_tachy is not None and pin_tachy is not None and TachyInputPIO(sm_tachy, pin_tachy, tachy_off_time)
         self._rpm_change_timestamp = Timestamp()
         self._rpm_stable_threshold = 20
         self.rpm = self._old_rpm = 0

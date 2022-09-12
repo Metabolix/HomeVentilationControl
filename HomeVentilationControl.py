@@ -22,13 +22,13 @@ class HomeVentilationControl:
         self.c0 = FanController(
             pin_switch_on = 19, pin_switch_own = 22,
             pin_voltage_adc = 28, ctrl_translate = FanController.VilpeECoIdeal,
-            pin_tachy = 16,
+            sm_tachy = 1, pin_tachy = 16,
             pin_pwm_out = 17,
         )
         self.c1 = FanController(
             pin_switch_on = 21, pin_switch_own = 20,
             pin_voltage_adc = 27, ctrl_translate = FanController.LapetekVirgola5600XH,
-            pin_tachy = 26,
+            sm_tachy = 2, pin_tachy = 26,
             pin_pwm_out = 18,
         )
 
