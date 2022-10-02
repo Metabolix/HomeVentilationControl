@@ -59,7 +59,14 @@ class HomeVentilationControl:
         if "hood_speeds" not in self.conf:
             self.conf["hood_speeds"] = (0, 330, 1000, 1600, 2600, 2600, 2600, 2600, 2600)
 
+    def _save_conf(self):
+        if self.conf != self.conf_saved:
+            with open("HomeVentilationControl.conf", "w") as f:
+                json.dump(self.conf, f)
+            self.conf_saved = dict(self.conf)
+
     def update(self):
+        self.updated = Timestamp()
         self.uptime.update()
         self.air.update()
         self.ir.update()
@@ -117,6 +124,86 @@ class HomeVentilationControl:
             self.watchdog.feed()
         except:
             pass
+
+    # Web interface is implemented as a module for WebMain.
+    # See https://github.com/Metabolix/MicroPython-WebMain
+    def __call__(self, request):
+        if not request:
+            if not self.updated.between(0, 200):
+                self.update()
+            return
+        method = request.method
+        query = request.path_info
+
+        if method == "GET" and query == "":
+            return request.reply(content = str(self))
+
+        if method == "GET" and query == "?json":
+            return request.reply(mime = "application/json", content = self.json())
+
+        if method == "POST":
+            try:
+                what, params = query.split("=")
+                params = [int(x) for x in params.split(",")]
+                if what == "?ir_speeds":
+                    self.conf["ir_speeds"] = [params[i] for i in range(5)]
+                    self._save_conf()
+                elif what == "?hood_speeds":
+                    self.conf["hood_speeds"] = [params[i] for i in range(9)]
+                    self._save_conf()
+                else:
+                    params = None
+            except:
+                return request.reply(status = 401)
+            return request.reply(status = 200 if params else 404)
+
+    def json(self):
+        c0, c1 = self.c0, self.c1
+        clock = "{0:04}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}Z".format(*time.gmtime())
+        return json.dumps({
+            "clock": clock,
+            "uptime": self.uptime.ms(),
+            "conf": self.conf,
+            "air": {
+                "temperature": self.air.temperature,
+                "rh": self.air.humidity,
+            },
+            "0": {
+                "rpm": c0.rpm,
+                "target_rpm": c0.target_rpm,
+                "on": c0.switch_on,
+                "own": c0.switch_own,
+                "control": {
+                    "rpm": c0.ctrl_rpm,
+                    "level": c0.ctrl_level[0],
+                    "level_unit": c0.ctrl_level[1],
+                    "millivolts": c0.ctrl_millivolts,
+                    "timestamp": c0.ctrl_timestamp.ms(),
+                },
+            },
+            "1": {
+                "rpm": c1.rpm,
+                "target_rpm": c1.target_rpm,
+                "on": c1.switch_on,
+                "own": c1.switch_own,
+                "control": {
+                    "rpm": c1.ctrl_rpm,
+                    "level": c1.ctrl_level[0],
+                    "level_unit": c1.ctrl_level[1],
+                    "millivolts": c1.ctrl_millivolts,
+                    "timestamp": c1.ctrl_timestamp.ms(),
+                    "rpm_fixed": self.c1_fixed_ctrl_rpm,
+                    "level_fixed": self.c1_fixed_ctrl_level,
+                },
+                "ir": {
+                    "rpm": self.ir_rpm,
+                    "speed": self.ir.speed,
+                    "speed_timestamp": self.ir.speed_timestamp.ms(),
+                    "light": self.ir.light,
+                    "light_timestamp": self.ir.light_timestamp.ms(),
+                },
+            },
+        })
 
     def __str__(self):
         c0, c1 = self.c0, self.c1
