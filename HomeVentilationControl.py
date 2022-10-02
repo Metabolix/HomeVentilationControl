@@ -147,6 +147,9 @@ class HomeVentilationControl:
         query = request.path_info
 
         if method == "GET" and query == "":
+            return request.reply_static("HomeVentilationControl.html")
+
+        if method == "GET" and query == "?txt":
             return request.reply(content = str(self))
 
         if method == "GET" and query == "?json":

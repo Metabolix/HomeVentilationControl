@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Ventilation Control</title>
+<style>
+input {
+    width: 4em;
+}
+input.ttl {
+    width: 6em;
+}
+.box-row {
+    display: flex;
+    flex-wrap: wrap;
+}
+.rpm-grid label {
+    text-align: right;
+}
+.rpm-grid {
+    display: grid;
+    grid-template-areas: 'i-off b' 'i-1 i-2' 'i-3 i-4' 'i-5 i-6' 'i-7 i-8';
+    grid-gap: 0.5em;
+}
+.rpm-grid button {
+    grid-area: b;
+}
+
+@media (min-width: 32em) {
+    fieldset {
+        min-width: 30em;
+    }
+    .rpm-grid {
+        display: grid;
+        grid-template-areas: 'i-off b b b' 'i-1 i-2 i-3 i-4' 'i-5 i-6 i-7 i-8';
+        grid-gap: 0.5em;
+    }
+}
+</style>
+<body>
+<h1>Home Ventilation Control</h1>
+
+<fieldset>
+<legend>Status</legend>
+<pre id="txt">Status...</pre>
+</fieldset>
+
+<div class="box-row">
+<form name="wifi_rpm_0">
+<fieldset>
+<legend>Main RPM limits</legend>
+<input type="number" min="0" max="9999" value="0" required> – <input type="number" min="0" max="9999" value="9999" required>,
+ttl: <input type="number" class="ttl" min="10" max="8640000" value="3600" required> s
+<button style="margin-left: 1em;" type="submit">send</button>
+</fieldset>
+</form>
+
+<form name="wifi_rpm_1">
+<fieldset>
+<legend>Kitchen hood RPM limits</legend>
+<input type="number" min="0" max="9999" value="0" required> – <input type="number" min="0" max="9999" value="9999" required>,
+ttl: <input type="number" class="ttl" min="10" max="8640000" value="3600" required> s
+<button style="margin-left: 1em;" type="submit">send</button>
+</fieldset>
+</form>
+</div>
+
+<div class="box-row">
+<form name="ir_speeds">
+<fieldset>
+<legend>Kitchen hood RPM for IR codes</legend>
+<p class="rpm-grid" data-inputs="off,1,2,3,4"><button type="submit">save</button></p>
+</fieldset>
+</form>
+
+<form name="hood_speeds">
+<fieldset>
+<legend>Kitchen hood RPM for buttons</legend>
+<p class="rpm-grid" data-inputs="off,1,2,3,4,5,6,7,8"><button type="submit">save</button></p>
+<p>Notice: the hood uses only 4 of 8 settings.</p>
+</fieldset>
+</form>
+</div>
+
+<script>
+const update = async () => {
+    document.getElementById("txt").textContent = await (await fetch("?txt")).text();
+};
+document.querySelectorAll("[data-inputs]").forEach(form => {
+    form.dataset.inputs.split(",").map(i => {
+        form.innerHTML += "<label style='grid-area: i-" + i + "'>" + i + ": <input type='number' min='0' max='9999' required></label>";
+    });
+});
+document.querySelectorAll("form").forEach(form => {
+    form.addEventListener("submit", e => {
+        e.preventDefault();
+        if (form.reportValidity()) {
+            let value = Array.from(form.querySelectorAll("input")).map(input => input.value).join(",");
+            fetch("?" + form.name + "=" + value, {method: "POST"}).then(update);
+        }
+    });
+});
+const init = (name, values) => {
+    let inputs = document.forms[name].querySelectorAll("input");
+    values.forEach((x, i) => inputs[i].value = x);
+};
+window.addEventListener("load", async () => {
+    update();
+    setInterval(update, 10_000);
+    let data = await (await fetch("?json")).json();
+    init("ir_speeds", data.conf.ir_speeds);
+    init("hood_speeds", data.conf.hood_speeds);
+});
+window.addEventListener("unload", () => {});
+</script>
