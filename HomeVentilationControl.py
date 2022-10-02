@@ -32,6 +32,10 @@ class HomeVentilationControl:
             pin_pwm_out = 18,
         )
 
+        self.wifi_rpm_0_min = self.wifi_rpm_1_min = 0
+        self.wifi_rpm_0_max = self.wifi_rpm_1_max = 9999
+        self.wifi_rpm_0_ttl = self.wifi_rpm_1_ttl = 0
+        self.wifi_rpm_0_timestamp = self.wifi_rpm_1_timestamp = Timestamp(None)
         self.ir_rpm_target = self.ir_rpm = 0
         self.c1_fixed_ctrl_rpm = self.c1_fixed_ctrl_level = -1
         self._load_conf()
@@ -113,9 +117,16 @@ class HomeVentilationControl:
         except:
             self.c1_fixed_ctrl_rpm = self.c1_fixed_ctrl_level = -1
 
+        r = self.c0.ctrl_rpm
+        if self.wifi_rpm_0_timestamp.valid():
+            r = min(max(r, self.wifi_rpm_0_min), self.wifi_rpm_0_max)
+        self.c0.set_rpm(r)
+
         r = self.c1.ctrl_rpm if self.c1_fixed_ctrl_level < 0 else self.c1_fixed_ctrl_rpm
         if ir_valid:
             r = max(r, self.ir_rpm)
+        if self.wifi_rpm_1_timestamp.valid():
+            r = min(max(r, self.wifi_rpm_1_min), self.wifi_rpm_1_max)
         self.c1.set_rpm(r)
 
         try:
@@ -151,6 +162,14 @@ class HomeVentilationControl:
                 elif what == "?hood_speeds":
                     self.conf["hood_speeds"] = [params[i] for i in range(9)]
                     self._save_conf()
+                elif what == "?wifi_rpm_0":
+                    self.wifi_rpm_0_min, self.wifi_rpm_0_max, self.wifi_rpm_0_ttl = params
+                    self.wifi_rpm_0_timestamp = Timestamp()
+                    self.wifi_rpm_0_timestamp.set_valid_between(0, self.wifi_rpm_0_ttl * 1000)
+                elif what == "?wifi_rpm_1":
+                    self.wifi_rpm_1_min, self.wifi_rpm_1_max, self.wifi_rpm_1_ttl = params
+                    self.wifi_rpm_1_timestamp = Timestamp()
+                    self.wifi_rpm_1_timestamp.set_valid_between(0, self.wifi_rpm_1_ttl * 1000)
                 else:
                     params = None
             except:
@@ -173,6 +192,12 @@ class HomeVentilationControl:
                 "target_rpm": c0.target_rpm,
                 "on": c0.switch_on,
                 "own": c0.switch_own,
+                "wifi": {
+                    "min": self.wifi_rpm_0_min,
+                    "max": self.wifi_rpm_0_max,
+                    "timestamp": self.wifi_rpm_0_timestamp.ms(),
+                    "ttl": self.wifi_rpm_0_ttl,
+                },
                 "control": {
                     "rpm": c0.ctrl_rpm,
                     "level": c0.ctrl_level[0],
@@ -186,6 +211,12 @@ class HomeVentilationControl:
                 "target_rpm": c1.target_rpm,
                 "on": c1.switch_on,
                 "own": c1.switch_own,
+                "wifi": {
+                    "min": self.wifi_rpm_1_min,
+                    "max": self.wifi_rpm_1_max,
+                    "timestamp": self.wifi_rpm_1_timestamp.ms(),
+                    "ttl": self.wifi_rpm_1_ttl,
+                },
                 "control": {
                     "rpm": c1.ctrl_rpm,
                     "level": c1.ctrl_level[0],
@@ -217,10 +248,12 @@ air: {str_temp_rh(self.air.temperature)} °C, RH {str_temp_rh(self.air.humidity)
 
 FAN 0 (main):
     RPM:  {c0.rpm:4} rpm, target {str_none(c0.target_rpm):4} rpm (on {c0.switch_on}, own {c0.switch_own})
+    WiFi: {self.wifi_rpm_0_min:4} - {self.wifi_rpm_0_max:4} rpm, age {self.wifi_rpm_0_timestamp}, ttl {self.wifi_rpm_0_ttl}
     CTRL: {c0.ctrl_rpm:4} rpm ({c0.ctrl_level[0]} {c0.ctrl_level[1]}, {c0.ctrl_millivolts} mV), age {c0.ctrl_timestamp}
 
 FAN 1 (kitchen hood):
     RPM:  {c1.rpm:4} rpm, target {str_none(c1.target_rpm):4} rpm (on {c1.switch_on}, own {c1.switch_own})
+    WiFi: {self.wifi_rpm_1_min:4} - {self.wifi_rpm_1_max:4} rpm, age {self.wifi_rpm_1_timestamp}, ttl {self.wifi_rpm_1_ttl}
     CTRL: {c1.ctrl_rpm:4} rpm ({c1.ctrl_level[0]} {c1.ctrl_level[1]}, {c1.ctrl_millivolts} mV), age {c1.ctrl_timestamp}
     Fix:  {self.c1_fixed_ctrl_rpm:4} rpm ({self.c1_fixed_ctrl_level} {c1.ctrl_level[1]})
     IR:   {self.ir_rpm:4} rpm, speed {self.ir.speed}, age {self.ir.speed_timestamp}
