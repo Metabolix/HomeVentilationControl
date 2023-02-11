@@ -153,7 +153,7 @@ class HomeVentilationControl:
             return request.reply(content = str(self))
 
         if method == "GET" and query == "?json":
-            return request.reply(mime = "application/json", content = self.json())
+            return request.reply(mime = "application/json", content = json.dumps(self.state()))
 
         if method == "POST":
             try:
@@ -179,10 +179,10 @@ class HomeVentilationControl:
                 return request.reply(status = 401)
             return request.reply(status = 200 if params else 404)
 
-    def json(self):
+    def state(self):
         c0, c1 = self.c0, self.c1
         clock = "{0:04}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}Z".format(*time.gmtime())
-        return json.dumps({
+        return {
             "clock": clock,
             "uptime": self.uptime.ms(),
             "conf": self.conf,
@@ -237,7 +237,7 @@ class HomeVentilationControl:
                     "light_timestamp": self.ir.light_timestamp.ms(),
                 },
             },
-        })
+        }
 
     def __str__(self):
         c0, c1 = self.c0, self.c1
