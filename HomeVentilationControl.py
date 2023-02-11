@@ -159,29 +159,28 @@ class HomeVentilationControl:
         if method == "GET" and query == "?json":
             return request.reply(mime = "application/json", content = json.dumps(self.state()))
 
-        if method == "POST":
+        if method == "POST" and query == "?json-post":
             try:
-                what, params = query.split("=")
-                params = [int(x) for x in params.split(",")]
-                if what == "?ir_speeds":
-                    self.conf["ir_speeds"] = [params[i] for i in range(5)]
-                    self._save_conf()
-                elif what == "?hood_speeds":
-                    self.conf["hood_speeds"] = [params[i] for i in range(9)]
-                    self._save_conf()
-                elif what == "?wifi_rpm_0":
-                    self.wifi_rpm_0_min, self.wifi_rpm_0_max, self.wifi_rpm_0_ttl = params
-                    self.wifi_rpm_0_timestamp = Timestamp()
-                    self.wifi_rpm_0_timestamp.set_valid_between(0, self.wifi_rpm_0_ttl * 1000)
-                elif what == "?wifi_rpm_1":
-                    self.wifi_rpm_1_min, self.wifi_rpm_1_max, self.wifi_rpm_1_ttl = params
-                    self.wifi_rpm_1_timestamp = Timestamp()
-                    self.wifi_rpm_1_timestamp.set_valid_between(0, self.wifi_rpm_1_ttl * 1000)
-                else:
-                    params = None
+                self._handle_post(json.loads(request.read_body(4096)))
             except:
                 return request.reply(status = 401)
-            return request.reply(status = 200 if params else 404)
+            return request.reply(status = 200)
+
+    def _handle_post(self, obj):
+        for what, params in obj.items():
+            if what == "ir_speeds":
+                self.conf["ir_speeds"] = [params[i] for i in range(5)]
+            elif what == "hood_speeds":
+                self.conf["hood_speeds"] = [params[i] for i in range(9)]
+            elif what == "wifi_rpm_0":
+                self.wifi_rpm_0_min, self.wifi_rpm_0_max, self.wifi_rpm_0_ttl = params
+                self.wifi_rpm_0_timestamp = Timestamp()
+                self.wifi_rpm_0_timestamp.set_valid_between(0, self.wifi_rpm_0_ttl * 1000)
+            elif what == "wifi_rpm_1":
+                self.wifi_rpm_1_min, self.wifi_rpm_1_max, self.wifi_rpm_1_ttl = params
+                self.wifi_rpm_1_timestamp = Timestamp()
+                self.wifi_rpm_1_timestamp.set_valid_between(0, self.wifi_rpm_1_ttl * 1000)
+        self._save_conf()
 
     def state(self):
         c0, c1 = self.c0, self.c1

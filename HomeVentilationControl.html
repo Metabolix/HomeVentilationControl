@@ -86,6 +86,13 @@ ttl: <input type="number" class="ttl" min="10" max="8640000" value="3600" requir
 const update = async () => {
     document.getElementById("txt").textContent = await (await fetch("?txt")).text();
 };
+const post = data => {
+    fetch("?json-post", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data)
+    }).then(update);
+};
 document.querySelectorAll("[data-inputs]").forEach(form => {
     form.dataset.inputs.split(",").map(i => {
         form.innerHTML += "<label style='grid-area: i-" + i + "'>" + i + ": <input type='number' min='0' max='9999' required></label>";
@@ -94,10 +101,13 @@ document.querySelectorAll("[data-inputs]").forEach(form => {
 document.querySelectorAll("form").forEach(form => {
     form.addEventListener("submit", e => {
         e.preventDefault();
-        if (form.reportValidity()) {
-            let value = Array.from(form.querySelectorAll("input")).map(input => input.value).join(",");
-            fetch("?" + form.name + "=" + value, {method: "POST"}).then(update);
+        if (!form.reportValidity()) {
+            return;
         }
+        let data = {};
+        let value = Array.from(form.querySelectorAll("input")).map(input => input.value).join(",");
+        data[form.name] = value;
+        post(data);
     });
 });
 const init = (name, values) => {
