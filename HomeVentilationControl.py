@@ -1,6 +1,7 @@
 import json
 import time
-from machine import Pin, WDT, mem32
+from machine import Pin, WDT, mem32, unique_id
+from binascii import hexlify
 from Timestamp import Timestamp
 from DHT22 import DHT22
 from Hob2Hood import Hob2Hood
@@ -12,6 +13,9 @@ def pin_make_vcc(num):
     PADS_BANK0 = 0x4001c000
     ATOMIC_OR = 0x2000
     mem32[ATOMIC_OR + PADS_BANK0 + 4 + num * 4] = 0x30
+
+def unique_id_str():
+    return hexlify(unique_id()).decode()
 
 class HomeVentilationControl:
     def __init__(self):
@@ -183,6 +187,7 @@ class HomeVentilationControl:
         c0, c1 = self.c0, self.c1
         clock = "{0:04}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}Z".format(*time.gmtime())
         return {
+            "unique_id": unique_id_str(),
             "clock": clock,
             "uptime": self.uptime.ms(),
             "conf": self.conf,
