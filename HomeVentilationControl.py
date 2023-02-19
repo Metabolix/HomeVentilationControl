@@ -1,5 +1,6 @@
 import json
 import time
+import socket
 from machine import Pin, WDT, mem32, unique_id
 from binascii import hexlify
 from Timestamp import Timestamp
@@ -64,6 +65,10 @@ class CookingLogic:
     def apply_to(self, value):
         return max(value, self.value)
 
+UDP_MAX_PEER_AGE = const(910_000)
+UDP_MAX_STATE_AGE = const(300_000)
+UDP_DEFAULT_PORT = const(38866)
+
 class HomeVentilationControl:
 
     _default_conf = {
@@ -71,6 +76,7 @@ class HomeVentilationControl:
         "modify_cm0": ((0, 0), (100, 100)),
         "modify_cm1": ((0, 0), (100, 100)),
         "modify_ir": ((0, 0), (4, 100)),
+        "udp_port": None, # None = null = disabled
     }
 
     def __init__(self):
@@ -110,6 +116,7 @@ class HomeVentilationControl:
         self.modify_cm1 = LinearInterpolator(self.conf["modify_cm1"])
         self.modify_ir = LinearInterpolator(self.conf["modify_ir"])
         self.watchdog = None
+        self.udp_socket = None
         self.uptime = Timestamp()
         self.update()
 
@@ -166,6 +173,7 @@ class HomeVentilationControl:
         if not request:
             if not self.updated.between(0, 200):
                 self.update()
+            self.handle_udp()
             return
         method = request.method
         query = request.path_info
@@ -261,6 +269,113 @@ class HomeVentilationControl:
                 },
             },
         }
+
+    def handle_udp(self):
+        try:
+            self._handle_udp_unsafe()
+        except:
+            pass
+
+    def _handle_udp_unsafe(self):
+        # Create socket.
+        if not (s := self.udp_socket):
+            port = self.conf["udp_port"]
+            if port == None:
+                return
+            if port == "default":
+                port = UDP_DEFAULT_PORT
+            self._udp_peers = dict()
+            self._udp_peer_state = None
+            s = self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(socket.getaddrinfo("0.0.0.0", port)[0][-1])
+            s.setblocking(False)
+            # TODO: load encryption key
+
+        # Receive datagrams.
+        for i in range(5):
+            try:
+                data, source = s.recvfrom(512)
+            except:
+                break
+            try:
+                # TODO: decrypt
+                obj = json.loads(data)
+                post = obj["HomeVentilationControl"]
+                # Verify (and remove) unique_id from request.
+                if "unique_id" in post:
+                    if post.pop("unique_id") != unique_id_str():
+                        continue
+                self._handle_post(post)
+                if post or source not in self._udp_peers:
+                    # Invalidate old state if a new peer connects or a command is posted.
+                    self._udp_peer_state = None
+                self._udp_peers[source] = Timestamp()
+            except:
+                continue
+
+        # Update after a command, mostly to apply the new targets.
+        if not self._udp_peer_state:
+            self.update()
+
+        # Remove inactive peers.
+        for peer in list(self._udp_peers):
+            t = self._udp_peers[peer]
+            t.set_valid_between(0, UDP_MAX_PEER_AGE)
+            if not t.valid():
+                del self._udp_peers[peer]
+
+        # Send state if changed.
+        s0, s1 = self._udp_peer_state, self.state()
+        if self._udp_peers and not s0 or self._relevant_changes(s0, s1, UDP_MAX_STATE_AGE):
+            self._udp_peer_state = s1
+            data = json.dumps({"HomeVentilationControl": s1})
+            # TODO: encrypt
+            for peer in self._udp_peers:
+                try:
+                    s.sendto(data, peer)
+                except:
+                    pass
+
+    def _relevant_changes(self, s0, s1, interval):
+        relevant_changes = [
+            # Any changes in config.
+            (("conf",), None),
+            # Elapsed time since last update.
+            (("uptime",), interval),
+            # 0.5 °C in temperature, 1 % changes in RH.
+            (("air", "temperature"), 0_5),
+            (("air", "rh"), 1_0),
+            # 2 percent changes in actual or target values.
+            (("0", "percentage"), 2),
+            (("1", "percentage"), 2),
+            (("0", "target"), 2),
+            (("1", "target"), 2),
+            # Any changes in physical switches.
+            (("0", "on"), None),
+            (("0", "own"), None),
+            (("1", "on"), None),
+            (("1", "own"), None),
+            # Any changes in WiFi controlled parameters.
+            (("0", "wifi", "points"), None),
+            (("0", "wifi", "valid"), None),
+            (("1", "wifi", "points"), None),
+            (("1", "wifi", "valid"), None),
+            # Any level changes in controls.
+            (("0", "controller", "level"), None),
+            (("1", "controller", "level"), None),
+            (("1", "ir", "speed"), None),
+            (("1", "ir", "light"), None),
+        ]
+        for path, amount in relevant_changes:
+            p0, p1 = s0, s1
+            for key in path:
+                p0 = p0[key]
+                p1 = p1[key]
+            if p0 != p1:
+                if not amount or abs(p0 - p1) >= amount:
+                    return True
+        return False
 
     def __str__(self):
         str_temp_rh = lambda x: x is None and "None" or f"{x // 10}.{x % 10}"
