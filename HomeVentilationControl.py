@@ -6,6 +6,7 @@ from Timestamp import Timestamp
 from DHT22 import DHT22
 from Hob2Hood import Hob2Hood
 from ControllerMonitor import *
+from FanMonitor import *
 from FanController import FanController
 
 def pin_make_vcc(num):
@@ -34,14 +35,15 @@ class HomeVentilationControl:
         self.cm0 = VilpeECoIdeal(28)
         self.cm1 = LapetekVirgola5600XH(27)
 
+        self.fm0 = VilpeECoFlow125P700(sm = 1, pin = 16)
+        self.fm1 = VilpeECoFlow125P700(sm = 2, pin = 26)
+
         self.c0 = FanController(
             pin_switch_on = 19, pin_switch_own = 22,
-            sm_tachy = 1, pin_tachy = 16,
             pin_pwm_out = 17,
         )
         self.c1 = FanController(
             pin_switch_on = 21, pin_switch_own = 20,
-            sm_tachy = 2, pin_tachy = 26,
             pin_pwm_out = 18,
         )
 
@@ -77,6 +79,8 @@ class HomeVentilationControl:
         self.ir.update()
         self.cm0.update()
         self.cm1.update()
+        self.fm0.update()
+        self.fm1.update()
 
         self.ir.speed_timestamp.set_valid_between(0, 5_400_000)
         ir_valid = self.ir.speed_timestamp.valid()
@@ -108,23 +112,20 @@ class HomeVentilationControl:
         try:
             c1_rpm = self.conf["hood_speeds"][self.cm1.level]
         except:
-            c1_rpm = self.c1.millivolts_to_rpm(self.cm1.millivolts)
+            c1_rpm = self.fm1.millivolts_to_rpm(self.cm1.millivolts)
 
-        c0_rpm = self.c0.millivolts_to_rpm(self.cm0.millivolts)
+        c0_rpm = self.fm0.millivolts_to_rpm(self.cm0.millivolts)
         r = c0_rpm
         if self.wifi_rpm_0_timestamp.valid():
             r = min(max(r, self.wifi_rpm_0_min), self.wifi_rpm_0_max)
-        self.c0.set_rpm(r)
+        self.c0.update(r, self.fm0.rpm, self.fm0.stable, self.fm0.rpm_stable_threshold, self.fm0.stable_delay)
 
         r = c1_rpm
         if ir_valid:
             r = max(r, self.ir_rpm)
         if self.wifi_rpm_1_timestamp.valid():
             r = min(max(r, self.wifi_rpm_1_min), self.wifi_rpm_1_max)
-        self.c1.set_rpm(r)
-
-        self.c0.update()
-        self.c1.update()
+        self.c1.update(r, self.fm1.rpm, self.fm1.stable, self.fm1.rpm_stable_threshold, self.fm1.stable_delay)
 
         try:
             if self.conf["watchdog"] and not self.watchdog:
@@ -190,7 +191,7 @@ class HomeVentilationControl:
                 "rh": self.air.humidity,
             },
             "0": {
-                "rpm": c0.rpm,
+                "rpm": self.fm0.rpm,
                 "target_rpm": c0.target_rpm,
                 "on": c0.switch_on,
                 "own": c0.switch_own,
@@ -209,7 +210,7 @@ class HomeVentilationControl:
                 },
             },
             "1": {
-                "rpm": c1.rpm,
+                "rpm": self.fm1.rpm,
                 "target_rpm": c1.target_rpm,
                 "on": c1.switch_on,
                 "own": c1.switch_own,
@@ -239,8 +240,8 @@ class HomeVentilationControl:
     def __str__(self):
         c0, c1 = self.c0, self.c1
         cm0, cm1 = self.cm0, self.cm1
-        ctrl_rpm_0 = self.c0.millivolts_to_rpm(self.cm0.millivolts)
-        ctrl_rpm_1 = self.c1.millivolts_to_rpm(self.cm1.millivolts)
+        ctrl_rpm_0 = self.fm0.millivolts_to_rpm(self.cm0.millivolts)
+        ctrl_rpm_1 = self.fm1.millivolts_to_rpm(self.cm1.millivolts)
         str_none = lambda x: x is None and "None" or x
         str_temp_rh = lambda x: x is None and "None" or f"{x // 10}.{x % 10}"
         str_fixed = lambda x: f"level fixed from {x.measured_level} {x.unit}, age {x.timestamp}" if x.level != x.measured_level else "level valid"
@@ -251,13 +252,13 @@ clock: {clock}
 air: {str_temp_rh(self.air.temperature)} °C, RH {str_temp_rh(self.air.humidity)} %
 
 FAN 0 (main):
-    RPM:  {c0.rpm:4} rpm, target {str_none(c0.target_rpm):4} rpm (on {c0.switch_on}, own {c0.switch_own})
+    RPM:  {self.fm0.rpm:4} rpm, target {str_none(c0.target_rpm):4} rpm (on {c0.switch_on}, own {c0.switch_own})
     WiFi: {self.wifi_rpm_0_min:4} - {self.wifi_rpm_0_max:4} rpm, age {self.wifi_rpm_0_timestamp}, ttl {self.wifi_rpm_0_ttl}
     CTRL: {ctrl_rpm_0:4} rpm ({cm0.level} {cm0.unit}, {cm0.millivolts} mV), age {cm0.timestamp}
           {"":4}     ({str_fixed(cm0)})
 
 FAN 1 (kitchen hood):
-    RPM:  {c1.rpm:4} rpm, target {str_none(c1.target_rpm):4} rpm (on {c1.switch_on}, own {c1.switch_own})
+    RPM:  {self.fm1.rpm:4} rpm, target {str_none(c1.target_rpm):4} rpm (on {c1.switch_on}, own {c1.switch_own})
     WiFi: {self.wifi_rpm_1_min:4} - {self.wifi_rpm_1_max:4} rpm, age {self.wifi_rpm_1_timestamp}, ttl {self.wifi_rpm_1_ttl}
     CTRL: {ctrl_rpm_1:4} rpm ({cm1.level} {cm1.unit}, {cm1.millivolts} mV), age {cm1.timestamp}
           {"":4}     ({str_fixed(cm1)})
