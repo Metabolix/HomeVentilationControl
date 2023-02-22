@@ -2,18 +2,17 @@
 # determine optimal data points for FanController._get_pwm_estimate.
 # Run interactively, copy data to a text file and plot with gnuplot:
 # gnuplot> plot 'data.txt' using 1:2, 'line.txt' using 1:2 with lines
-# Hand-pick points to line.txt (for gluplot) and to _output_memory.
+# Hand-pick points to line.txt (for gnuplot) and to _output_memory.
 
 from FanController import FanController
+from FanMonitor import *
 from Timestamp import Timestamp
 from time import sleep_ms as s
 
-# Init controller with only PWM and tachy.
-# Without switches it won't mess up PWM in .update().
-c = FanController(
-    sm_tachy = 1, pin_tachy = 16,
-    pin_pwm_out = 17,
-)
+# Init a fan monitor for RPM readings.
+# Init FanController for output.
+m = VilpeECoFlow125P700(sm = 1, pin = 16)
+c = FanController(pin_switch_on = None, pin_switch_own = None, pin_pwm_out = 17)
 
 # PWM setter.
 def p(value = None, _cache = [0]):
@@ -24,11 +23,11 @@ def p(value = None, _cache = [0]):
 
 # RPM getter with delay (to let the fan settle).
 def r(delay_ms = 1000):
-    c.update()
+    m.update()
     t = Timestamp()
     while t.between(0, delay_ms):
-        c.update()
-    return c.rpm
+        m.update()
+    return m.rpm
 
 print(f"Finding end points...")
 max_rpm = 0
