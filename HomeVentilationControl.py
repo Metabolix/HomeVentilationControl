@@ -39,12 +39,16 @@ class HomeVentilationControl:
         self.fm1 = VilpeECoFlow125P700(sm = 2, pin = 26)
 
         self.c0 = FanController(
-            pin_switch_on = 19, pin_switch_own = 22,
+            pin_switch_on = 19,
+            pin_switch_own = 22,
             pin_pwm_out = 17,
+            max_effect = self.fm0.max_rpm,
         )
         self.c1 = FanController(
-            pin_switch_on = 21, pin_switch_own = 20,
+            pin_switch_on = 21,
+            pin_switch_own = 20,
             pin_pwm_out = 18,
+            max_effect = self.fm1.max_rpm,
         )
 
         self.wifi_rpm_0_min = self.wifi_rpm_1_min = 0
@@ -192,7 +196,7 @@ class HomeVentilationControl:
             },
             "0": {
                 "rpm": self.fm0.rpm,
-                "target_rpm": c0.target_rpm,
+                "target": c0.target,
                 "on": c0.switch_on,
                 "own": c0.switch_own,
                 "wifi": {
@@ -211,7 +215,7 @@ class HomeVentilationControl:
             },
             "1": {
                 "rpm": self.fm1.rpm,
-                "target_rpm": c1.target_rpm,
+                "target": c1.target,
                 "on": c1.switch_on,
                 "own": c1.switch_own,
                 "wifi": {
@@ -252,13 +256,13 @@ clock: {clock}
 air: {str_temp_rh(self.air.temperature)} °C, RH {str_temp_rh(self.air.humidity)} %
 
 FAN 0 (main):
-    RPM:  {self.fm0.rpm:4} rpm, target {str_none(c0.target_rpm):4} rpm (on {c0.switch_on}, own {c0.switch_own})
+    RPM:  {self.fm0.rpm:4} rpm, target {str_none(c0.target):4} rpm (on {c0.switch_on}, own {c0.switch_own})
     WiFi: {self.wifi_rpm_0_min:4} - {self.wifi_rpm_0_max:4} rpm, age {self.wifi_rpm_0_timestamp}, ttl {self.wifi_rpm_0_ttl}
     CTRL: {ctrl_rpm_0:4} rpm ({cm0.level} {cm0.unit}, {cm0.millivolts} mV), age {cm0.timestamp}
           {"":4}     ({str_fixed(cm0)})
 
 FAN 1 (kitchen hood):
-    RPM:  {self.fm1.rpm:4} rpm, target {str_none(c1.target_rpm):4} rpm (on {c1.switch_on}, own {c1.switch_own})
+    RPM:  {self.fm1.rpm:4} rpm, target {str_none(c1.target):4} rpm (on {c1.switch_on}, own {c1.switch_own})
     WiFi: {self.wifi_rpm_1_min:4} - {self.wifi_rpm_1_max:4} rpm, age {self.wifi_rpm_1_timestamp}, ttl {self.wifi_rpm_1_ttl}
     CTRL: {ctrl_rpm_1:4} rpm ({cm1.level} {cm1.unit}, {cm1.millivolts} mV), age {cm1.timestamp}
           {"":4}     ({str_fixed(cm1)})
