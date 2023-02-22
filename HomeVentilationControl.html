@@ -8,7 +8,7 @@ input {
     width: 4em;
 }
 input.ttl {
-    width: 6em;
+    width: 4.5em;
 }
 .box-row {
     display: flex;
@@ -46,21 +46,21 @@ input.ttl {
 </fieldset>
 
 <div class="box-row">
-<form name="wifi_rpm_0">
+<form class="json">
 <fieldset>
-<legend>Main RPM limits</legend>
-<input type="number" min="0" max="9999" value="0" required> – <input type="number" min="0" max="9999" value="9999" required>,
-ttl: <input type="number" class="ttl" min="10" max="8640000" value="3600" required> s
-<button style="margin-left: 1em;" type="submit">send</button>
+<legend>Main fan Wi-Fi map</legend>
+<p><textarea name="wifi_0" class="points" rows="5" cols="15"></textarea></p>
+<label><input type="number" name="wifi_0_ttl" class="ttl" data-multiplier="60000" min="1" max="14400" value="60" required> min</label>
+<button type="submit">send</button>
 </fieldset>
 </form>
 
-<form name="wifi_rpm_1">
+<form class="json">
 <fieldset>
-<legend>Kitchen hood RPM limits</legend>
-<input type="number" min="0" max="9999" value="0" required> – <input type="number" min="0" max="9999" value="9999" required>,
-ttl: <input type="number" class="ttl" min="10" max="8640000" value="3600" required> s
-<button style="margin-left: 1em;" type="submit">send</button>
+<legend>Kitchen hood Wi-Fi map</legend>
+<p><textarea name="wifi_1" class="points" rows="5" cols="15"></textarea></p>
+<label><input type="number" name="wifi_1_ttl" class="ttl" data-multiplier="60000" min="1" max="14400" value="60" required> min</label>
+<button type="submit">send</button>
 </fieldset>
 </form>
 </div>
@@ -86,6 +86,17 @@ ttl: <input type="number" class="ttl" min="10" max="8640000" value="3600" requir
 const update = async () => {
     document.getElementById("txt").textContent = await (await fetch("?txt")).text();
 };
+const setnum = (input, value) => {
+    input.value = value / (+input.dataset.multiplier || 1);
+};
+const reload = async () => {
+    let json = await (await fetch("?json")).json();
+    const points = t => t.map(xy => `${xy[0]}\t${xy[1]}\n`).join("");
+    for (let i of ["0", "1"]) {
+        document.getElementsByName("wifi_" + i)[0].value = points(json[i]["wifi"]["points"]);
+        setnum(document.getElementsByName("wifi_" + i + "_ttl")[0], json[i]["wifi"]["ttl"]);
+    }
+};
 const post = data => {
     fetch("?json-post", {
         method: "POST",
@@ -105,8 +116,25 @@ document.querySelectorAll("form").forEach(form => {
             return;
         }
         let data = {};
-        let value = Array.from(form.querySelectorAll("input")).map(input => input.value).join(",");
-        data[form.name] = value;
+        if (!form.classList.contains("json")) {
+            data[form.name] = Array.from(form.querySelectorAll("input")).map(input => input.value).join(",");
+            post(data);
+            return;
+        }
+        Array.from(form.querySelectorAll("input, textarea")).forEach(input => {
+            let value = input.value;
+            if (input.type == "number") {
+                value = +value;
+                if (+input.dataset.multiplier) {
+                    value *= +input.dataset.multiplier;
+                }
+            }
+            if (input.classList.contains("points")) {
+                value = value.match(/(-?\d+)/g).map(x => +x);
+                value = value.map((x, i) => [value[i-1], x]).filter((x, i) => i % 2 == 1);
+            }
+            data[input.name] = value;
+        });
         post(data);
     });
 });
@@ -116,6 +144,7 @@ const init = (name, values) => {
 };
 window.addEventListener("load", async () => {
     update();
+    reload();
     setInterval(update, 10_000);
     let data = await (await fetch("?json")).json();
     init("ir_speeds", data.conf.ir_speeds);

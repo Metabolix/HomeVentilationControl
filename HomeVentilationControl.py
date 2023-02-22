@@ -8,6 +8,7 @@ from Hob2Hood import Hob2Hood
 from ControllerMonitor import *
 from FanMonitor import *
 from FanController import FanController
+from LinearInterpolator import LinearInterpolator
 
 def pin_make_vcc(num):
     """Set a pin high and set drive strength to 12 mA"""
@@ -18,6 +19,25 @@ def pin_make_vcc(num):
 
 def unique_id_str():
     return hexlify(unique_id()).decode()
+
+class ExternalLogic:
+    def __init__(self):
+        self.set_interpolator_points([(0, 0), (100, 100)])
+        self.ttl = 0
+        self.timestamp = Timestamp(None)
+
+    def set_interpolator_points(self, points):
+        self.interpolator = LinearInterpolator(points)
+
+    def set_ttl(self, ttl):
+        self.ttl = int(ttl)
+        self.timestamp = Timestamp()
+        self.timestamp.set_valid_between(0, self.ttl)
+
+    def apply_to(self, value):
+        if self.timestamp.valid():
+            value = self.interpolator.value_at(value)
+        return value
 
 class HomeVentilationControl:
 
@@ -50,11 +70,8 @@ class HomeVentilationControl:
             pin_pwm_out = 18,
             max_effect = self.fm1.max_rpm,
         )
-
-        self.wifi_rpm_0_min = self.wifi_rpm_1_min = 0
-        self.wifi_rpm_0_max = self.wifi_rpm_1_max = 9999
-        self.wifi_rpm_0_ttl = self.wifi_rpm_1_ttl = 0
-        self.wifi_rpm_0_timestamp = self.wifi_rpm_1_timestamp = Timestamp(None)
+        self.wifi_0 = ExternalLogic()
+        self.wifi_1 = ExternalLogic()
         self.ir_rpm_target = self.ir_rpm = 0
         self.conf = self._load_conf()
         self.watchdog = None
@@ -120,15 +137,13 @@ class HomeVentilationControl:
 
         c0_rpm = self.fm0.millivolts_to_rpm(self.cm0.millivolts)
         r = c0_rpm
-        if self.wifi_rpm_0_timestamp.valid():
-            r = min(max(r, self.wifi_rpm_0_min), self.wifi_rpm_0_max)
+        r = self.wifi_0.apply_to(r)
         self.c0.update(r, self.fm0.rpm, self.fm0.stable, self.fm0.rpm_stable_threshold, self.fm0.stable_delay)
 
         r = c1_rpm
         if ir_valid:
             r = max(r, self.ir_rpm)
-        if self.wifi_rpm_1_timestamp.valid():
-            r = min(max(r, self.wifi_rpm_1_min), self.wifi_rpm_1_max)
+        r = self.wifi_1.apply_to(r)
         self.c1.update(r, self.fm1.rpm, self.fm1.stable, self.fm1.rpm_stable_threshold, self.fm1.stable_delay)
 
         try:
@@ -170,14 +185,12 @@ class HomeVentilationControl:
                 self.conf["ir_speeds"] = [params[i] for i in range(5)]
             elif what == "hood_speeds":
                 self.conf["hood_speeds"] = [params[i] for i in range(9)]
-            elif what == "wifi_rpm_0":
-                self.wifi_rpm_0_min, self.wifi_rpm_0_max, self.wifi_rpm_0_ttl = params
-                self.wifi_rpm_0_timestamp = Timestamp()
-                self.wifi_rpm_0_timestamp.set_valid_between(0, self.wifi_rpm_0_ttl * 1000)
-            elif what == "wifi_rpm_1":
-                self.wifi_rpm_1_min, self.wifi_rpm_1_max, self.wifi_rpm_1_ttl = params
-                self.wifi_rpm_1_timestamp = Timestamp()
-                self.wifi_rpm_1_timestamp.set_valid_between(0, self.wifi_rpm_1_ttl * 1000)
+            elif what in ("wifi_0", "wifi_1"):
+                w = getattr(self, what)
+                # Reset TTL first, in case of bad data.
+                w.set_ttl(0)
+                w.set_interpolator_points(params)
+                w.set_ttl(obj[what + "_ttl"])
             elif what == "save_conf" and params == [1]:
                 self._save_conf()
 
@@ -200,10 +213,10 @@ class HomeVentilationControl:
                 "on": c0.switch_on,
                 "own": c0.switch_own,
                 "wifi": {
-                    "min": self.wifi_rpm_0_min,
-                    "max": self.wifi_rpm_0_max,
-                    "timestamp": self.wifi_rpm_0_timestamp.ms(),
-                    "ttl": self.wifi_rpm_0_ttl,
+                    "points": self.wifi_0.interpolator.points,
+                    "valid": self.wifi_0.timestamp.valid(),
+                    "age": self.wifi_0.timestamp.ms(),
+                    "ttl": self.wifi_0.ttl,
                 },
                 "controller": {
                     "level": cm0.level,
@@ -219,10 +232,10 @@ class HomeVentilationControl:
                 "on": c1.switch_on,
                 "own": c1.switch_own,
                 "wifi": {
-                    "min": self.wifi_rpm_1_min,
-                    "max": self.wifi_rpm_1_max,
-                    "timestamp": self.wifi_rpm_1_timestamp.ms(),
-                    "ttl": self.wifi_rpm_1_ttl,
+                    "points": self.wifi_1.interpolator.points,
+                    "valid": self.wifi_1.timestamp.valid(),
+                    "age": self.wifi_1.timestamp.ms(),
+                    "ttl": self.wifi_1.ttl,
                 },
                 "controller": {
                     "level": cm1.level,
@@ -249,6 +262,7 @@ class HomeVentilationControl:
         str_none = lambda x: x is None and "None" or x
         str_temp_rh = lambda x: x is None and "None" or f"{x // 10}.{x % 10}"
         str_fixed = lambda x: f"level fixed from {x.measured_level} {x.unit}, age {x.timestamp}" if x.level != x.measured_level else "level valid"
+        str_wifi = lambda x: f"{len(x.interpolator.points)} data points, ttl {Timestamp.timestr(x.ttl)}, age {x.timestamp}"
         clock = "{0:04}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}Z".format(*time.gmtime())
         return f"""{self.__class__.__name__}
 uptime: {self.uptime}
@@ -257,13 +271,13 @@ air: {str_temp_rh(self.air.temperature)} °C, RH {str_temp_rh(self.air.humidity)
 
 FAN 0 (main):
     RPM:  {self.fm0.rpm:4} rpm, target {str_none(c0.target):4} rpm (on {c0.switch_on}, own {c0.switch_own})
-    WiFi: {self.wifi_rpm_0_min:4} - {self.wifi_rpm_0_max:4} rpm, age {self.wifi_rpm_0_timestamp}, ttl {self.wifi_rpm_0_ttl}
+    WiFi: {str_wifi(self.wifi_0)}
     CTRL: {ctrl_rpm_0:4} rpm ({cm0.level} {cm0.unit}, {cm0.millivolts} mV), age {cm0.timestamp}
           {"":4}     ({str_fixed(cm0)})
 
 FAN 1 (kitchen hood):
     RPM:  {self.fm1.rpm:4} rpm, target {str_none(c1.target):4} rpm (on {c1.switch_on}, own {c1.switch_own})
-    WiFi: {self.wifi_rpm_1_min:4} - {self.wifi_rpm_1_max:4} rpm, age {self.wifi_rpm_1_timestamp}, ttl {self.wifi_rpm_1_ttl}
+    WiFi: {str_wifi(self.wifi_1)}
     CTRL: {ctrl_rpm_1:4} rpm ({cm1.level} {cm1.unit}, {cm1.millivolts} mV), age {cm1.timestamp}
           {"":4}     ({str_fixed(cm1)})
     IR:   {self.ir_rpm:4} rpm, speed {self.ir.speed}, age {self.ir.speed_timestamp}
