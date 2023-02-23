@@ -18,6 +18,13 @@ def unique_id_str():
     return hexlify(unique_id()).decode()
 
 class HomeVentilationControl:
+
+    _default_conf = {
+        "watchdog": True,
+        "ir_speeds": (0, 1300, 2000, 2300, 2600),
+        "hood_speeds": (0, 330, 1000, 1600, 2600, 2600, 2600, 2600, 2600),
+    }
+
     def __init__(self):
         pin_make_vcc(9)
         self.air = DHT22(10)
@@ -42,36 +49,25 @@ class HomeVentilationControl:
         self.wifi_rpm_0_timestamp = self.wifi_rpm_1_timestamp = Timestamp(None)
         self.ir_rpm_target = self.ir_rpm = 0
         self.c1_fixed_ctrl_rpm = self.c1_fixed_ctrl_level = -1
-        self._load_conf()
+        self.conf = self._load_conf()
         self.watchdog = None
         self.uptime = Timestamp()
         self.update()
 
     def _load_conf(self):
+        conf = dict(self._default_conf)
         try:
             with open("HomeVentilationControl.conf", "r") as f:
-                self.conf = json.load(f)
-            self.conf_saved = dict(self.conf)
+                conf.update(json.load(f))
         except:
-            self.conf = self.conf_saved = None
-
-        if type(self.conf) != dict:
-            self.conf = dict()
-
-        if "watchdog" not in self.conf:
-            self.conf["watchdog"] = 1
-
-        if "ir_speeds" not in self.conf:
-            self.conf["ir_speeds"] = (0, 1300, 2000, 2300, 2600)
-
-        if "hood_speeds" not in self.conf:
-            self.conf["hood_speeds"] = (0, 330, 1000, 1600, 2600, 2600, 2600, 2600, 2600)
+            pass
+        return conf
 
     def _save_conf(self):
-        if self.conf != self.conf_saved:
+        old_conf = self._load_conf()
+        if self.conf != old_conf:
             with open("HomeVentilationControl.conf", "w") as f:
                 json.dump(self.conf, f)
-            self.conf_saved = dict(self.conf)
 
     def update(self):
         self.updated = Timestamp()
@@ -180,7 +176,8 @@ class HomeVentilationControl:
                 self.wifi_rpm_1_min, self.wifi_rpm_1_max, self.wifi_rpm_1_ttl = params
                 self.wifi_rpm_1_timestamp = Timestamp()
                 self.wifi_rpm_1_timestamp.set_valid_between(0, self.wifi_rpm_1_ttl * 1000)
-        self._save_conf()
+            elif what == "save_conf" and params == [1]:
+                self._save_conf()
 
     def state(self):
         c0, c1 = self.c0, self.c1
