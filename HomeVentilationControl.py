@@ -39,6 +39,31 @@ class ExternalLogic:
             value = self.interpolator.value_at(value)
         return value
 
+class CookingLogic:
+    def __init__(self):
+        self.value = 0
+        self.cooking_started = False
+
+    def update(self, cooking_assumed, value):
+        if cooking_assumed:
+            # Record cooking time and most recent fan value.
+            if not self.cooking_started:
+                self.cooking_started = Timestamp()
+            self.cooking_ended = Timestamp()
+            self.cooking_duration = self.cooking_started.ms() - self.cooking_ended.ms()
+            self.value = self.value_when_cooking = value
+        else:
+            self.cooking_started = False
+            if self.value:
+                # Non-zero value = timestamps are also initialized above.
+                # Lower speed smoothly to zero, depending on previous cooking time.
+                slope_duration = max(30_000, min(180_000, self.cooking_duration // 5))
+                slope_now = self.cooking_ended.ms()
+                self.value = max(0, self.value_when_cooking * (slope_duration - slope_now) // slope_duration)
+
+    def apply_to(self, value):
+        return max(value, self.value)
+
 class HomeVentilationControl:
 
     _default_conf = {
@@ -51,6 +76,7 @@ class HomeVentilationControl:
         pin_make_vcc(9)
         self.air = DHT22(10)
         self.ir = Hob2Hood(sm = 0, pin = 11)
+        self.cooking_logic = CookingLogic()
 
         self.cm0 = VilpeECoIdeal(28)
         self.cm1 = LapetekVirgola5600XH(27)
@@ -72,7 +98,6 @@ class HomeVentilationControl:
         )
         self.wifi_0 = ExternalLogic()
         self.wifi_1 = ExternalLogic()
-        self.ir_rpm_target = self.ir_rpm = 0
         self.conf = self._load_conf()
         self.watchdog = None
         self.uptime = Timestamp()
@@ -103,31 +128,10 @@ class HomeVentilationControl:
         self.fm0.update()
         self.fm1.update()
 
-        self.ir.speed_timestamp.set_valid_between(0, 5_400_000)
-        ir_valid = self.ir.speed_timestamp.valid()
         try:
-            self.ir_rpm_target = self.conf["ir_speeds"][self.ir.speed if ir_valid else 0]
+            ir_value = self.conf["ir_speeds"][self.ir.speed]
         except:
-            self.ir_rpm_target = 0
-
-        if self.ir_rpm_target:
-            # Remember latest non-zero IR RPM.
-            if not self.ir_rpm:
-                self.ir_high_start = Timestamp()
-            self.ir_high_end = Timestamp()
-            self.ir_rpm = self.ir_rpm_high = self.ir_rpm_target
-        elif self.ir_rpm > 0:
-            # Lower RPM smoothly to zero, depending on previous cooking time.
-            self.ir_duration = self.ir_high_start.ms() - self.ir_high_end.ms()
-            self.ir_rpm = 0
-            ir_slope_time = 120_000
-            if self.ir_duration > 300_000:
-                ir_slope_time = 180_000
-            if self.ir_duration > 600_000:
-                ir_slope_time = 240_000
-            ir_slope_pos = self.ir_high_end.ms()
-            if ir_slope_pos < ir_slope_time:
-                self.ir_rpm = self.ir_rpm_high * (ir_slope_time - ir_slope_pos) // ir_slope_time
+            ir_value = 0
 
         # Custom output levels for the kitchen hood.
         try:
@@ -135,14 +139,16 @@ class HomeVentilationControl:
         except:
             c1_rpm = self.fm1.millivolts_to_rpm(self.cm1.millivolts)
 
+        self.cooking_logic.update(self.ir.speed > 0, ir_value)
+
         c0_rpm = self.fm0.millivolts_to_rpm(self.cm0.millivolts)
         r = c0_rpm
         r = self.wifi_0.apply_to(r)
         self.c0.update(r, self.fm0.rpm, self.fm0.stable, self.fm0.rpm_stable_threshold, self.fm0.stable_delay)
 
         r = c1_rpm
-        if ir_valid:
-            r = max(r, self.ir_rpm)
+        r = max(r, ir_value)
+        r = self.cooking_logic.apply_to(r)
         r = self.wifi_1.apply_to(r)
         self.c1.update(r, self.fm1.rpm, self.fm1.stable, self.fm1.rpm_stable_threshold, self.fm1.stable_delay)
 
@@ -245,11 +251,11 @@ class HomeVentilationControl:
                     "measured_level": cm1.measured_level,
                 },
                 "ir": {
-                    "rpm": self.ir_rpm,
                     "speed": self.ir.speed,
-                    "speed_timestamp": self.ir.speed_timestamp.ms(),
+                    "expired_speed": self.ir.expired_speed,
+                    "speed_age": self.ir.speed_timestamp.ms(),
                     "light": self.ir.light,
-                    "light_timestamp": self.ir.light_timestamp.ms(),
+                    "light_age": self.ir.light_timestamp.ms(),
                 },
             },
         }
@@ -280,7 +286,7 @@ FAN 1 (kitchen hood):
     WiFi: {str_wifi(self.wifi_1)}
     CTRL: {ctrl_rpm_1:4} rpm ({cm1.level} {cm1.unit}, {cm1.millivolts} mV), age {cm1.timestamp}
           {"":4}     ({str_fixed(cm1)})
-    IR:   {self.ir_rpm:4} rpm, speed {self.ir.speed}, age {self.ir.speed_timestamp}
+    IR:   {self.cooking_logic.value:4} rpm, level {self.ir.speed}, age {self.ir.speed_timestamp}
 
 """
 

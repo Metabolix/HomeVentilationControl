@@ -50,7 +50,8 @@ class Hob2Hood:
     def __init__(self, *, receiver = None, sm = None, pin = None):
         self.receiver = receiver if sm is None or pin is None else Hob2HoodReceiverPIO(sm, pin)
         self.speed = 0
-        self.light = 0
+        self.light = False
+        self.expired_speed = None
         self.speed_timestamp = Timestamp(None)
         self.light_timestamp = Timestamp(None)
 
@@ -58,13 +59,21 @@ class Hob2Hood:
         new_ir = self.receiver and self.receiver.get()
         if new_ir in Hob2Hood_IR_codes:
             ir_code = Hob2Hood_IR_codes[new_ir]
+
             if ir_code == "L0" or ir_code == "L1":
                 self.light_timestamp = Timestamp()
-                self.light = ir_code == "L1" and 1 or 0
+                self.light = bool(ir_code == "L1")
                 if not self.light:
                     # Light is off, fan should be too. Play it safe.
+                    self.expired_speed = None
                     self.speed = 0
                     self.speed_timestamp = Timestamp()
             else:
+                self.expired_speed = None
                 self.speed = ir_code
                 self.speed_timestamp = Timestamp()
+
+        self.speed_timestamp.set_valid_between(0, 5_400_000)
+        if self.speed and not self.speed_timestamp.valid():
+            self.expired_speed = self.speed
+            self.speed = 0
