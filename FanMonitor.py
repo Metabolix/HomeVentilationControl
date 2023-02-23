@@ -59,11 +59,13 @@ class FanMonitor:
     millivolts_for_max_rpm = 10_000
     stable_delay = 1_000
     rpm_stable_threshold = 50
+    percentage_stable_threshold = 1
 
     def __init__(self, sm, pin):
         tachy_off_time = 2_000 # Over 2 seconds = less than 30 rpm will be considered "off".
         self.tachy_input = TachyInputPIO(sm, pin, tachy_off_time)
         self.rpm = 0
+        self.percentage = 0
         self.stable = False
         self._rpm_change_timestamp = Timestamp()
         self._rpm_stable_low = 0
@@ -72,6 +74,7 @@ class FanMonitor:
     def update(self):
         dt = self.tachy_input and self.tachy_input.diff_us() or -1
         self.rpm = 60_000_000 // dt if dt > 0 else 0
+        self.percentage = self.rpm_to_percentage(self.rpm)
         lo = min(self.rpm - self._rpm_stable_low, 0)
         hi = max(self.rpm - self._rpm_stable_high, 0)
         if lo < 0 or hi > 0:
@@ -86,6 +89,14 @@ class FanMonitor:
         if rpm < cls.stop_rpm:
             return 0
         return max(cls.stop_rpm, min(cls.max_rpm, rpm))
+
+    @classmethod
+    def rpm_to_percentage(cls, rpm):
+        return max(0, min(100, 100 * rpm // cls.max_rpm))
+
+    @classmethod
+    def millivolts_to_percentage(cls, mv):
+        return cls.rpm_to_percentage(cls.millivolts_to_rpm(mv))
 
 class VilpeECoFlow125P700(FanMonitor):
     # Vilpe ECo Flow rpm rises linearly with voltage between lowest and highest.
