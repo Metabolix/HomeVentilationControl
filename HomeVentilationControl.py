@@ -68,8 +68,8 @@ class HomeVentilationControl:
 
     _default_conf = {
         "watchdog": True,
-        "ir_speeds": (0, 1300, 2000, 2300, 2600),
-        "hood_speeds": (0, 330, 1000, 1600, 2600, 2600, 2600, 2600, 2600),
+        "ir_speeds": (0, 43, 66, 75, 86),
+        "hood_speeds": (0, 11, 33, 53, 86, 86, 86, 86, 86),
     }
 
     def __init__(self):
@@ -88,13 +88,13 @@ class HomeVentilationControl:
             pin_switch_on = 19,
             pin_switch_own = 22,
             pin_pwm_out = 17,
-            max_effect = self.fm0.max_rpm,
+            max_effect = 100,
         )
         self.c1 = FanController(
             pin_switch_on = 21,
             pin_switch_own = 20,
             pin_pwm_out = 18,
-            max_effect = self.fm1.max_rpm,
+            max_effect = 100,
         )
         self.wifi_0 = ExternalLogic()
         self.wifi_1 = ExternalLogic()
@@ -135,22 +135,20 @@ class HomeVentilationControl:
 
         # Custom output levels for the kitchen hood.
         try:
-            c1_rpm = self.conf["hood_speeds"][self.cm1.level]
+            c1_value = self.conf["hood_speeds"][self.cm1.level]
         except:
-            c1_rpm = self.fm1.millivolts_to_rpm(self.cm1.millivolts)
+            c1_value = self.fm1.millivolts_to_percentage(self.cm1.millivolts)
 
         self.cooking_logic.update(self.ir.speed > 0, ir_value)
 
-        c0_rpm = self.fm0.millivolts_to_rpm(self.cm0.millivolts)
-        r = c0_rpm
-        r = self.wifi_0.apply_to(r)
-        self.c0.update(r, self.fm0.rpm, self.fm0.stable, self.fm0.rpm_stable_threshold, self.fm0.stable_delay)
+        c0_value = self.fm0.millivolts_to_percentage(self.cm0.millivolts)
+        c0_value = self.wifi_0.apply_to(c0_value)
+        self.c0.update(c0_value, self.fm0.percentage, self.fm0.stable, self.fm0.percentage_stable_threshold, self.fm0.stable_delay)
 
-        r = c1_rpm
-        r = max(r, ir_value)
-        r = self.cooking_logic.apply_to(r)
-        r = self.wifi_1.apply_to(r)
-        self.c1.update(r, self.fm1.rpm, self.fm1.stable, self.fm1.rpm_stable_threshold, self.fm1.stable_delay)
+        c1_value = max(c1_value, ir_value)
+        c1_value = self.cooking_logic.apply_to(c1_value)
+        c1_value = self.wifi_1.apply_to(c1_value)
+        self.c1.update(c1_value, self.fm1.percentage, self.fm1.stable, self.fm1.percentage_stable_threshold, self.fm1.stable_delay)
 
         try:
             if self.conf["watchdog"] and not self.watchdog:
@@ -214,6 +212,7 @@ class HomeVentilationControl:
                 "rh": self.air.humidity,
             },
             "0": {
+                "percentage": self.fm0.percentage,
                 "rpm": self.fm0.rpm,
                 "target": c0.target,
                 "on": c0.switch_on,
@@ -233,6 +232,7 @@ class HomeVentilationControl:
                 },
             },
             "1": {
+                "percentage": self.fm1.percentage,
                 "rpm": self.fm1.rpm,
                 "target": c1.target,
                 "on": c1.switch_on,
@@ -261,14 +261,11 @@ class HomeVentilationControl:
         }
 
     def __str__(self):
-        c0, c1 = self.c0, self.c1
-        cm0, cm1 = self.cm0, self.cm1
-        ctrl_rpm_0 = self.fm0.millivolts_to_rpm(self.cm0.millivolts)
-        ctrl_rpm_1 = self.fm1.millivolts_to_rpm(self.cm1.millivolts)
-        str_none = lambda x: x is None and "None" or x
         str_temp_rh = lambda x: x is None and "None" or f"{x // 10}.{x % 10}"
         str_fixed = lambda x: f"level fixed from {x.measured_level} {x.unit}, age {x.timestamp}" if x.level != x.measured_level else "level valid"
         str_wifi = lambda x: f"{len(x.interpolator.points)} data points, ttl {Timestamp.timestr(x.ttl)}, age {x.timestamp}"
+        str_output = lambda c: f"{c.target:3} %, on {c.switch_on:1}, own {c.switch_own:1}, {'stable' if c.stable else 'adjusting'}"
+        str_ctrl = lambda cm, fm: f"{fm.millivolts_to_percentage(cm.millivolts):3} %, from {cm.millivolts:5} mV = {cm.level} {cm.unit}, {str_fixed(cm)}"
         clock = "{0:04}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}Z".format(*time.gmtime())
         return f"""{self.__class__.__name__}
 uptime: {self.uptime}
@@ -276,17 +273,17 @@ clock: {clock}
 air: {str_temp_rh(self.air.temperature)} °C, RH {str_temp_rh(self.air.humidity)} %
 
 FAN 0 (main):
-    RPM:  {self.fm0.rpm:4} rpm, target {str_none(c0.target):4} rpm (on {c0.switch_on}, own {c0.switch_own})
+    Fan Monitor:  {self.fm0.percentage:3} % = {self.fm0.rpm:4} rpm
+    Output:       {str_output(self.c0)}
+    Ctrl Monitor: {str_ctrl(self.cm0, self.fm0)}
     WiFi: {str_wifi(self.wifi_0)}
-    CTRL: {ctrl_rpm_0:4} rpm ({cm0.level} {cm0.unit}, {cm0.millivolts} mV), age {cm0.timestamp}
-          {"":4}     ({str_fixed(cm0)})
 
 FAN 1 (kitchen hood):
-    RPM:  {self.fm1.rpm:4} rpm, target {str_none(c1.target):4} rpm (on {c1.switch_on}, own {c1.switch_own})
+    Fan Monitor:  {self.fm1.percentage:3} % = {self.fm1.rpm:4} rpm
+    Output:       {str_output(self.c1)}
+    Ctrl Monitor: {str_ctrl(self.cm1, self.fm1)}
+    Hob2Hood:     {self.cooking_logic.value:3} %, level {self.ir.speed}, age {self.ir.speed_timestamp}
     WiFi: {str_wifi(self.wifi_1)}
-    CTRL: {ctrl_rpm_1:4} rpm ({cm1.level} {cm1.unit}, {cm1.millivolts} mV), age {cm1.timestamp}
-          {"":4}     ({str_fixed(cm1)})
-    IR:   {self.cooking_logic.value:4} rpm, level {self.ir.speed}, age {self.ir.speed_timestamp}
 
 """
 
