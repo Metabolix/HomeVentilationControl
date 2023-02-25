@@ -66,14 +66,18 @@ class FanMonitor:
         self.rpm = 0
         self.stable = False
         self._rpm_change_timestamp = Timestamp()
-        self._old_rpm = 0
+        self._rpm_stable_low = 0
+        self._rpm_stable_high = self.rpm_stable_threshold * 2
 
     def update(self):
         dt = self.tachy_input and self.tachy_input.diff_us() or -1
         self.rpm = 60_000_000 // dt if dt > 0 else 0
-        if abs(self.rpm - self._old_rpm) > self.rpm_stable_threshold:
+        lo = min(self.rpm - self._rpm_stable_low, 0)
+        hi = max(self.rpm - self._rpm_stable_high, 0)
+        if lo < 0 or hi > 0:
+            self._rpm_stable_low += lo + hi
+            self._rpm_stable_high += lo + hi
             self._rpm_change_timestamp = Timestamp()
-        self._old_rpm = ((7 * self._old_rpm) + self.rpm) // 8
         self.stable = not self._rpm_change_timestamp.between(0, self.stable_delay)
 
     @classmethod
