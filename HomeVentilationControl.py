@@ -68,8 +68,9 @@ class HomeVentilationControl:
 
     _default_conf = {
         "watchdog": True,
-        "ir_speeds": (0, 43, 66, 75, 86),
-        "hood_speeds": (0, 11, 33, 53, 86, 86, 86, 86, 86),
+        "modify_cm0": ((0, 0), (100, 100)),
+        "modify_cm1": ((0, 0), (100, 100)),
+        "modify_ir": ((0, 0), (4, 100)),
     }
 
     def __init__(self):
@@ -83,6 +84,12 @@ class HomeVentilationControl:
 
         self.fm0 = VilpeECoFlow125P700(sm = 1, pin = 16)
         self.fm1 = VilpeECoFlow125P700(sm = 2, pin = 26)
+
+        self._default_conf = dict(self._default_conf)
+        self._default_conf.update({
+            "modify_cm0": [(level, self.fm0.millivolts_to_percentage(millivolts)) for level, millivolts in self.cm0.levels_to_millivolts],
+            "modify_cm1": [(level, self.fm1.millivolts_to_percentage(millivolts)) for level, millivolts in self.cm1.levels_to_millivolts],
+        })
 
         self.c0 = FanController(
             pin_switch_on = 19,
@@ -99,6 +106,9 @@ class HomeVentilationControl:
         self.wifi_0 = ExternalLogic()
         self.wifi_1 = ExternalLogic()
         self.conf = self._load_conf()
+        self.modify_cm0 = LinearInterpolator(self.conf["modify_cm0"])
+        self.modify_cm1 = LinearInterpolator(self.conf["modify_cm1"])
+        self.modify_ir = LinearInterpolator(self.conf["modify_ir"])
         self.watchdog = None
         self.uptime = Timestamp()
         self.update()
@@ -128,16 +138,9 @@ class HomeVentilationControl:
         self.fm0.update()
         self.fm1.update()
 
-        try:
-            ir_value = self.conf["ir_speeds"][self.ir.speed]
-        except:
-            ir_value = 0
-
-        # Custom output levels for the kitchen hood.
-        try:
-            c1_value = self.conf["hood_speeds"][self.cm1.level]
-        except:
-            c1_value = self.fm1.millivolts_to_percentage(self.cm1.millivolts)
+        ir_value = self.modify_ir.value_at(self.ir.speed)
+        c0_value = self.modify_cm0.value_at(self.cm0.level)
+        c1_value = self.modify_cm1.value_at(self.cm1.level)
 
         self.cooking_logic.update(self.ir.speed > 0, ir_value)
 
@@ -185,10 +188,9 @@ class HomeVentilationControl:
 
     def _handle_post(self, obj):
         for what, params in obj.items():
-            if what == "ir_speeds":
-                self.conf["ir_speeds"] = [params[i] for i in range(5)]
-            elif what == "hood_speeds":
-                self.conf["hood_speeds"] = [params[i] for i in range(9)]
+            if what in ("modify_cm0", "modify_cm1", "modify_ir"):
+                setattr(self, what, LinearInterpolator(params))
+                self.conf[what] = params
             elif what in ("wifi_0", "wifi_1"):
                 w = getattr(self, what)
                 # Reset TTL first, in case of bad data.

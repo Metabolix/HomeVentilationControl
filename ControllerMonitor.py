@@ -2,6 +2,7 @@ from machine import ADC
 from Timestamp import Timestamp
 
 class ControllerMonitor:
+    levels_to_millivolts = ((0, 0), (100, 10000))
     unit = "%"
     def _calculate_level(self, mv):
         return mv // 100
@@ -50,6 +51,7 @@ class LapetekVirgola5600XH(ControllerMonitor):
     # Lapetek Virgola 5600XH kitchen hood has 8 levels (above zero).
     # Internal DIP switches are used to select 4 of the modes for use.
     # Voltages (actually 12 V PWM) are between 1_100 mV and 12_000 mV.
+    levels_to_millivolts = ((0, 0), (2, 2450), (5, 6720))
     unit = "/8"
     def _calculate_level(self, mv):
         return max(0, min(8, (mv + 500) // 1400))
@@ -63,6 +65,7 @@ class LapetekVirgola5600XH(ControllerMonitor):
 class VilpeECoIdeal(ControllerMonitor):
     # Vilpe ECo Ideal is configured from 0 to 100 % in steps of 10 %.
     # 10 % = 1890 mV and 100 % = 9960 mV.
+    levels_to_millivolts = ((0, 0), (10, 1890), (100, 9960))
     unit = "%"
     def _calculate_level(self, mv):
         return max(0, min(100, round(10 * (mv - 940) // 897, -1)))
