@@ -109,6 +109,8 @@ class HomeVentilationControl:
             pin_pwm_out = 18,
             max_effect = 100,
         )
+        self.c0_target_no_wifi = 0
+        self.c1_target_no_wifi = 0
         self.wifi_0 = ExternalLogic()
         self.wifi_1 = ExternalLogic()
         self.conf = self._load_conf()
@@ -152,11 +154,13 @@ class HomeVentilationControl:
         self.cooking_logic.update(self.ir.speed > 0, ir_value)
 
         c0_value = self.fm0.millivolts_to_percentage(self.cm0.millivolts)
+        self.c0_target_no_wifi = c0_value
         c0_value = self.wifi_0.apply_to(c0_value)
         self.c0.update(c0_value, self.fm0.percentage, self.fm0.stable, self.fm0.percentage_stable_threshold, self.fm0.stable_delay)
 
         c1_value = max(c1_value, ir_value)
         c1_value = self.cooking_logic.apply_to(c1_value)
+        self.c1_target_no_wifi = c1_value
         c1_value = self.wifi_1.apply_to(c1_value)
         self.c1.update(c1_value, self.fm1.percentage, self.fm1.stable, self.fm1.percentage_stable_threshold, self.fm1.stable_delay)
 
@@ -224,6 +228,7 @@ class HomeVentilationControl:
             "0": {
                 "percentage": self.fm0.percentage,
                 "rpm": self.fm0.rpm,
+                "target_no_wifi": self.c0_target_no_wifi,
                 "target": c0.target,
                 "on": c0.switch_on,
                 "own": c0.switch_own,
@@ -244,6 +249,7 @@ class HomeVentilationControl:
             "1": {
                 "percentage": self.fm1.percentage,
                 "rpm": self.fm1.rpm,
+                "target_no_wifi": self.c1_target_no_wifi,
                 "target": c1.target,
                 "on": c1.switch_on,
                 "own": c1.switch_own,
@@ -349,6 +355,8 @@ class HomeVentilationControl:
             # 2 percent changes in actual or target values.
             (("0", "percentage"), 2),
             (("1", "percentage"), 2),
+            (("0", "target_no_wifi"), 2),
+            (("1", "target_no_wifi"), 2),
             (("0", "target"), 2),
             (("1", "target"), 2),
             # Any changes in physical switches.
