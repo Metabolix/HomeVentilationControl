@@ -43,19 +43,27 @@ class Timestamp:
             self._ticks_ms = t
         return not self.empty
 
+    @staticmethod
+    def timestr(ms):
+        if ms is None:
+            return "None"
+        sign = ""
+        if ms < 0:
+            sign = "-"
+            ms = -ms
+        d = ms // 86400_000
+        ms -= d * 86400_000
+        h = ms // 3600_000
+        m = (ms - 3600_000 * h) // 60_000
+        s = (ms - 3600_000 * h - 60_000 * m) // 1_000
+        if d:
+            return f"{sign}{d} days, {sign}{h:02}:{m:02}:{s:02}"
+        if h or m:
+            return f"{sign}{h:02}:{m:02}:{s:02}"
+        ms = ms - 1_000 * s
+        return f"{sign}{s}.{ms:03}"
+
     def __str__(self):
-        def timestr(ms):
-            d = ms // 86400_000
-            ms -= d * 86400_000
-            h = ms // 3600_000
-            m = (ms - 3600_000 * h) // 60_000
-            s = (ms - 3600_000 * h - 60_000 * m) // 1_000
-            if d:
-                return f"{d} days, {h:02}:{m:02}:{s:02}"
-            if h or m:
-                return f"{h:02}:{m:02}:{s:02}"
-            ms = ms - 1_000 * s
-            return f"{s}.{ms:03}"
         if self.empty:
             return "None"
         # FIXME: In some use cases, updating the timestamp here
@@ -64,11 +72,9 @@ class Timestamp:
         # Crude heuristic: if validity checking is used, don't update here.
         if self._valid_ms_0 is self._valid_ms_1 is None:
             self.update()
-        if self._ms < 0:
-            return "<0"
-        t = timestr(self._ms)
+        t = self.timestr(self._ms)
         if self._valid_ms_0 is not None and not self._valid_0:
-            return t + " (<" + timestr(self._valid_ms_0) + ")"
+            return t + " (<" + self.timestr(self._valid_ms_0) + ")"
         if self._valid_ms_1 is not None and not self._valid_1:
-            return t + " (>" + timestr(self._valid_ms_1) + ")"
+            return t + " (>" + self.timestr(self._valid_ms_1) + ")"
         return t
