@@ -21,15 +21,16 @@ class DHT22:
         # Sensor start: low for 80 us, high for 80 us.
         us_0 = time_pulse_us(self.pin, 0, 200)
         us_1 = time_pulse_us(self.pin, 1, 100)
-        if us_0 > 99 or us_1 > 99:
+        if not (0 < us_0 < 99) or not (0 < us_1 < 99):
             return None, None
 
         # Sensor data: 40 bits: low for 50 us, then high for 28 us (0) or 70 us (1).
         # Sensor end: low for 50 us.
         for i in range(40):
             us = time_pulse_us(self.pin, 1, 50 + 70 + 10)
-            if us > 50:
-                data[i >> 3] |= 1 << (7 - (i & 7))
+            if us < 0:
+                return None, None
+            data[i >> 3] |= (us > 50) << (7 - (i & 7))
 
         check_ok = (data[0] + data[1] + data[2] + data[3]) & 0xff == data[4]
         humidity = (data[0] << 8) + data[1]
