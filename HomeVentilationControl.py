@@ -2,7 +2,6 @@ import json
 import time
 import socket
 from machine import Pin, WDT, mem32, unique_id
-from binascii import hexlify
 from Timestamp import Timestamp
 from DHT22 import DHT22
 from Hob2Hood import Hob2Hood
@@ -19,7 +18,7 @@ def pin_make_vcc(num):
     mem32[ATOMIC_OR + PADS_BANK0 + 4 + num * 4] = 0x30
 
 def unique_id_str():
-    return hexlify(unique_id()).decode()
+    return unique_id().hex().decode()
 
 class ExternalLogic:
     def __init__(self):
