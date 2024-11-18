@@ -1,6 +1,5 @@
 import json
 import time
-import socket
 from machine import Pin, WDT, mem32, unique_id
 from Timestamp import Timestamp
 from DHT22 import DHT22
@@ -291,6 +290,7 @@ class HomeVentilationControl:
                 port = UDP_DEFAULT_PORT
             self._udp_peers = dict()
             self._udp_peer_state = None
+            import socket
             s = self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind(socket.getaddrinfo("0.0.0.0", port)[0][-1])
