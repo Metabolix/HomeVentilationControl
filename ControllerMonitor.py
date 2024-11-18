@@ -65,7 +65,8 @@ class LapetekVirgola5600XH(ControllerMonitor):
 class VilpeECoIdeal(ControllerMonitor):
     # Vilpe ECo Ideal is configured from 0 to 100 % in steps of 10 %.
     # 10 % = 1890 mV and 100 % = 9960 mV.
-    levels_to_millivolts = ((0, 0), (10, 1890), (100, 9960))
+    # List a few levels because FanMonitor may reach 100% on a lower level.
+    levels_to_millivolts = ((0, 0), (10, 1890), (60, 6370), (70, 7270), (80, 8170), (100, 9960))
     unit = "%"
     def _calculate_level(self, mv):
         return max(0, min(100, round(10 * (mv - 940) // 897, -1)))

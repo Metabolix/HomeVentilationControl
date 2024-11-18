@@ -151,7 +151,6 @@ class HomeVentilationControl:
 
         self.cooking_logic.update(self.ir.speed > 0, ir_value)
 
-        c0_value = self.fm0.millivolts_to_percentage(self.cm0.millivolts)
         self.c0_target_no_wifi = c0_value
         c0_value = self.wifi_0.apply_to(c0_value)
         self.c0.update(c0_value, self.fm0.percentage, self.fm0.stable, self.fm0.percentage_stable_threshold, self.fm0.stable_delay)
