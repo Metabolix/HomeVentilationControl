@@ -413,6 +413,7 @@ FAN 1 (kitchen hood):
 
 def run():
     import time
+    time.sleep_ms(2000)
     s = HomeVentilationControl()
     while True:
         time.sleep_ms(1000)
